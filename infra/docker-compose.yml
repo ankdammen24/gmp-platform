@@ -1,14 +1,21 @@
 services:
   traefik:
-    image: traefik:v3.1
+    image: traefik:latest
     container_name: traefik
     command:
       - --api.dashboard=true
       - --providers.docker=true
       - --providers.docker.endpoint=unix:///var/run/docker.sock
       - --providers.docker.exposedbydefault=false
+
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+
+      # Redirect ALL HTTP -> HTTPS (robust, utan routers)
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+
       - --certificatesresolvers.le.acme.email=${LETSENCRYPT_EMAIL}
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.le.acme.httpchallenge=true
@@ -19,18 +26,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - letsencrypt:/letsencrypt
-    labels:
-      - traefik.enable=true
-      # Catch-all HTTP -> HTTPS redirect (globalt)
-      - traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)
-      - traefik.http.routers.http-catchall.entrypoints=web
-      - traefik.http.routers.http-catchall.middlewares=redirect-to-https
-      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
-      - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
     restart: unless-stopped
 
   db:
-    image: mariadb:11
+    image: mariadb:latest
     container_name: wp_db
     environment:
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
@@ -42,7 +41,7 @@ services:
     restart: unless-stopped
 
   wordpress:
-    image: wordpress:php8.2-apache
+    image: wordpress:latest
     container_name: wp_app
     depends_on:
       db:
@@ -71,13 +70,12 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: nginx:alpine
+    image: nginx:latest
     container_name: web_frontend
     volumes:
       - ./frontend_dist:/usr/share/nginx/html:ro
     labels:
       - traefik.enable=true
-      # Root + www (så båda funkar)
       - traefik.http.routers.front.rule=Host(`${FRONTEND_DOMAIN}`) || Host(`www.${FRONTEND_DOMAIN}`)
       - traefik.http.routers.front.entrypoints=websecure
       - traefik.http.routers.front.tls.certresolver=le
