@@ -1,12 +1,11 @@
-version: "3.9"
-
 services:
   traefik:
-    image: traefik:latest
+    image: traefik:v3.1
     container_name: traefik
     command:
       - --api.dashboard=true
       - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
@@ -20,10 +19,18 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - letsencrypt:/letsencrypt
+    labels:
+      - traefik.enable=true
+      # Catch-all HTTP -> HTTPS redirect (globalt)
+      - traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)
+      - traefik.http.routers.http-catchall.entrypoints=web
+      - traefik.http.routers.http-catchall.middlewares=redirect-to-https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
     restart: unless-stopped
 
   db:
-    image: mariadb:latest
+    image: mariadb:11
     container_name: wp_db
     environment:
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
@@ -35,33 +42,33 @@ services:
     restart: unless-stopped
 
   wordpress:
-    image: wordpress:latest
+    image: wordpress:php8.2-apache
     container_name: wp_app
-  depends_on:
-    db:
-      condition: service_started
-  environment:
-    WORDPRESS_DB_HOST: db:3306
-    WORDPRESS_DB_NAME: ${DB_NAME}
-    WORDPRESS_DB_USER: ${DB_USER}
-    WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
-    WORDPRESS_CONFIG_EXTRA: |
-      define('WP_HOME', 'https://${CMS_DOMAIN}');
-      define('WP_SITEURL', 'https://${CMS_DOMAIN}');
-      define('FORCE_SSL_ADMIN', true);
-      if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
-        $_SERVER['HTTPS'] = 'on';
-      }
-  volumes:
-    - wp_data:/var/www/html
-    - ./apache/servername.conf:/etc/apache2/conf-enabled/servername.conf:ro
-  labels:
-    - traefik.enable=true
-    - traefik.http.routers.wp.rule=Host(`${CMS_DOMAIN}`)
-    - traefik.http.routers.wp.entrypoints=websecure
-    - traefik.http.routers.wp.tls.certresolver=le
-    - traefik.http.services.wp.loadbalancer.server.port=80
-  restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_started
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_HOME', 'https://${CMS_DOMAIN}');
+        define('WP_SITEURL', 'https://${CMS_DOMAIN}');
+        define('FORCE_SSL_ADMIN', true);
+        if (isset($$_SERVER['HTTP_X_FORWARDED_PROTO']) && $$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+          $$_SERVER['HTTPS'] = 'on';
+        }
+    volumes:
+      - wp_data:/var/www/html
+      - ./apache/servername.conf:/etc/apache2/conf-enabled/servername.conf:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.wp.rule=Host(`${CMS_DOMAIN}`)
+      - traefik.http.routers.wp.entrypoints=websecure
+      - traefik.http.routers.wp.tls.certresolver=le
+      - traefik.http.services.wp.loadbalancer.server.port=80
+    restart: unless-stopped
 
   frontend:
     image: nginx:alpine
@@ -70,7 +77,8 @@ services:
       - ./frontend_dist:/usr/share/nginx/html:ro
     labels:
       - traefik.enable=true
-      - traefik.http.routers.front.rule=Host(`${FRONTEND_DOMAIN}`)
+      # Root + www (så båda funkar)
+      - traefik.http.routers.front.rule=Host(`${FRONTEND_DOMAIN}`) || Host(`www.${FRONTEND_DOMAIN}`)
       - traefik.http.routers.front.entrypoints=websecure
       - traefik.http.routers.front.tls.certresolver=le
       - traefik.http.services.front.loadbalancer.server.port=80
