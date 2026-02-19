@@ -11,7 +11,7 @@ services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
 
-      # Redirect ALL HTTP -> HTTPS (robust, utan routers)
+      # Redirect ALL HTTP -> HTTPS
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.web.http.redirections.entrypoint.permanent=true
@@ -69,7 +69,7 @@ services:
       - traefik.http.services.wp.loadbalancer.server.port=80
     restart: unless-stopped
 
-    frontend:
+  frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
