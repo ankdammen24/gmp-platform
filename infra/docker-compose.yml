@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.email=${LETSENCRYPT_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    restart: unless-stopped
+
+  db:
+    image: mariadb:11
+    container_name: wp_db
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    container_name: wp_app
+    depends_on:
+      - db
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_HOME', 'https://${CMS_DOMAIN}');
+        define('WP_SITEURL', 'https://${CMS_DOMAIN}');
+    volumes:
+      - wp_data:/var/www/html
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.wp.rule=Host(`${CMS_DOMAIN}`)
+      - traefik.http.routers.wp.entrypoints=websecure
+      - traefik.http.routers.wp.tls.certresolver=le
+      - traefik.http.services.wp.loadbalancer.server.port=80
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:alpine
+    container_name: web_frontend
+    volumes:
+      - ./frontend_dist:/usr/share/nginx/html:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.front.rule=Host(`${FRONTEND_DOMAIN}`)
+      - traefik.http.routers.front.entrypoints=websecure
+      - traefik.http.routers.front.tls.certresolver=le
+      - traefik.http.services.front.loadbalancer.server.port=80
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  wp_data:
+  letsencrypt:
