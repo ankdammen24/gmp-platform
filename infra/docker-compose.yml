@@ -38,7 +38,8 @@ services:
     image: wordpress:latest
     container_name: wp_app
   depends_on:
-    - db
+    db:
+      condition: service_started
   environment:
     WORDPRESS_DB_HOST: db:3306
     WORDPRESS_DB_NAME: ${DB_NAME}
