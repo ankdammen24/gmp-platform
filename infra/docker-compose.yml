@@ -37,27 +37,30 @@ services:
   wordpress:
     image: wordpress:latest
     container_name: wp_app
-    depends_on:
-      - db
-    environment:
-      WORDPRESS_DB_HOST: db:3306
-      WORDPRESS_DB_USER: ${DB_USER}
-      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
-      WORDPRESS_DB_NAME: ${DB_NAME}
-      WORDPRESS_CONFIG_EXTRA: |
-        define('WP_HOME', 'https://${CMS_DOMAIN}');
-        define('WP_SITEURL', 'https://${CMS_DOMAIN}');
-    volumes:
-      - wp_data:/var/www/html
-      - ./apache/servername.conf:/etc/apache2/conf-enabled/servername.conf:ro
-    labels:
+  depends_on:
+    - db
+  environment:
+    WORDPRESS_DB_HOST: db:3306
+    WORDPRESS_DB_NAME: ${DB_NAME}
+    WORDPRESS_DB_USER: ${DB_USER}
+    WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+    WORDPRESS_CONFIG_EXTRA: |
+      define('WP_HOME', 'https://${CMS_DOMAIN}');
+      define('WP_SITEURL', 'https://${CMS_DOMAIN}');
+      define('FORCE_SSL_ADMIN', true);
+      if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+        $_SERVER['HTTPS'] = 'on';
+      }
+  volumes:
+    - wp_data:/var/www/html
+    - ./apache/servername.conf:/etc/apache2/conf-enabled/servername.conf:ro
+  labels:
     - traefik.enable=true
-    - traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)
-    - traefik.http.routers.http-catchall.entrypoints=web
-    - traefik.http.routers.http-catchall.middlewares=redirect-to-https
-    - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
-    - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
-    restart: unless-stopped
+    - traefik.http.routers.wp.rule=Host(`${CMS_DOMAIN}`)
+    - traefik.http.routers.wp.entrypoints=websecure
+    - traefik.http.routers.wp.tls.certresolver=le
+    - traefik.http.services.wp.loadbalancer.server.port=80
+  restart: unless-stopped
 
   frontend:
     image: nginx:alpine
